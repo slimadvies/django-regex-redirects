@@ -40,4 +40,12 @@ Run manage.py migrate and you're good to go!
 
 
 
+Migrate from django_redirects:
+===============================
 
+Use this query to copy redirects to your new table:
+
+```
+INSERT INTO regex_redirects_redirect(old_path, new_path)
+SELECT old_path, new_path FROM django_redirect
+```

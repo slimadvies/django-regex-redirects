@@ -29,13 +29,6 @@ class RedirectFallbackMiddleware(object):
             return response # No need to check for a redirect for non-404 responses.
 
         full_path = request.get_full_path()
-        http_host = request.META.get('HTTP_HOST', '')
-        if http_host:
-            if request.is_secure():
-                http_host = 'https://' + http_host
-            else:
-                http_host = 'http://' + http_host
-
         try:
             path_filter = Q(old_path=full_path)
             if settings.APPEND_SLASH and not request.path.endswith('/'):
@@ -45,11 +38,8 @@ class RedirectFallbackMiddleware(object):
                 path_filter |= Q(old_path=slashed_full_path)
 
             redirect = Redirect.objects.get(path_filter)
-            if redirect.new_path.startswith('http'):
-                return http.HttpResponsePermanentRedirect(redirect.new_path)
-            else:
-                return http.HttpResponsePermanentRedirect(
-                    http_host + redirect.new_path)
+            return http.HttpResponsePermanentRedirect(redirect.new_path)
+
         except ObjectDoesNotExist:
             pass
 
@@ -71,11 +61,8 @@ class RedirectFallbackMiddleware(object):
                 new_path = redirect.new_path.replace('$', '\\')
                 replaced_path = re.sub(old_path, new_path, full_path)
 
-                if replaced_path.startswith('http'):
-                    return http.HttpResponsePermanentRedirect(replaced_path)
-                else:
-                    return http.HttpResponsePermanentRedirect(
-                        http_host + replaced_path)
+                return http.HttpResponsePermanentRedirect(replaced_path)
+
 
         # No redirect was found. Return the response.
         return response
