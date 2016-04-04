@@ -1,8 +1,9 @@
 from __future__ import unicode_literals
 
 from django.conf import settings
+from django.db.models import Q
 from .models import Redirect
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ObjectDoesNotExist
 from django import http
 
 import re
@@ -13,6 +14,7 @@ us to optionally redirect users using regular expressions.
 
 It is based on: http://djangosnippets.org/snippets/2784/
 """
+
 
 class RedirectFallbackMiddleware(object):
     def __init__(self):
@@ -34,26 +36,28 @@ class RedirectFallbackMiddleware(object):
             else:
                 http_host = 'http://' + http_host
 
-        redirects = Redirect.objects.all().order_by('fallback_redirect')
-        for redirect in redirects:
-            # Attempt a regular match
-            if redirect.old_path == full_path:
-                redirect.nr_times_visited += 1
-                redirect.save()
-                return http.HttpResponsePermanentRedirect(http_host + redirect.new_path)
-
+        try:
+            path_filter = Q(old_path=full_path)
             if settings.APPEND_SLASH and not request.path.endswith('/'):
                 # Try appending a trailing slash.
                 path_len = len(request.path)
                 slashed_full_path = full_path[:path_len] + '/' + full_path[path_len:]
+                path_filter |= Q(old_path=slashed_full_path)
 
-                if redirect.old_path == slashed_full_path:
-                    redirect.nr_times_visited += 1
-                    redirect.save()
-                    return http.HttpResponsePermanentRedirect(http_host + redirect.new_path)
+            redirect = Redirect.objects.get(path_filter)
+            if redirect.new_path.startswith('http'):
+                return http.HttpResponsePermanentRedirect(redirect.new_path)
+            else:
+                return http.HttpResponsePermanentRedirect(
+                    http_host + redirect.new_path)
+        except ObjectDoesNotExist:
+            pass
 
         # Attempt all regular expression redirects
-        reg_redirects = Redirect.objects.filter(regular_expression=True).order_by('fallback_redirect')
+        reg_redirects = Redirect.objects\
+            .filter(regular_expression=True)\
+            .order_by('fallback_redirect')
+
         for redirect in reg_redirects:
             try:
                 old_path = re.compile(redirect.old_path, re.IGNORECASE)
@@ -66,9 +70,12 @@ class RedirectFallbackMiddleware(object):
                 # which would have to be escaped)
                 new_path = redirect.new_path.replace('$', '\\')
                 replaced_path = re.sub(old_path, new_path, full_path)
-                redirect.nr_times_visited += 1
-                redirect.save()
-                return http.HttpResponsePermanentRedirect(http_host + replaced_path)
+
+                if replaced_path.startswith('http'):
+                    return http.HttpResponsePermanentRedirect(replaced_path)
+                else:
+                    return http.HttpResponsePermanentRedirect(
+                        http_host + replaced_path)
 
         # No redirect was found. Return the response.
         return response
